@@ -1,0 +1,51 @@
+name: Brownie Choc-A-Lot stock monitor
+
+# Watches the Cheesecake Factory Natick menu for the Brownie Choc-A-Lot and
+# opens an issue the moment it stops reading as sold out.
+#
+# NOTE: GitHub only runs `schedule` triggers from the DEFAULT branch. Until
+# this file lands on `main` the hourly check will not fire — use the manual
+# "Run workflow" button to test it from a feature branch.
+
+on:
+  schedule:
+    # Hourly at :17 (off the top of the hour, where every other cron job lives).
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Override the page to check (defaults to the Natick menu)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: brownie-stock-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the menu
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MONITOR_URL: ${{ inputs.url || 'https://www.thecheesecakefactory.com/locations/natick-ma/menu' }}
+          # Optional second push channel: an ntfy.sh topic URL, Slack webhook, etc.
+          ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
+        run: python3 tools/brownie_monitor.py
+
+      - name: Remember what we saw
+        run: |
+          if [ -n "$(git status --porcelain tools/brownie_state.json)" ]; then
+            git config user.name  'brownie-monitor'
+            git config user.email 'noreply@github.com'
+            git add tools/brownie_state.json
+            git commit -m "Brownie monitor: $(python3 -c 'import json;print(json.load(open("tools/brownie_state.json"))["state"])')"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
