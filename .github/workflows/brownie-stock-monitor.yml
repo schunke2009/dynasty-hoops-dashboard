@@ -27,6 +27,11 @@ on:
         required: false
         default: false
         type: boolean
+      debug_full:
+        description: 'Also print the raw page into the job log (needs debug)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -49,6 +54,7 @@ jobs:
           MONITOR_URL: ${{ inputs.url || 'https://www.thecheesecakefactory.com/locations/natick-ma/menu' }}
           TEST_PUSH: ${{ inputs.test_push }}
           DEBUG_DUMP: ${{ inputs.debug }}
+          DEBUG_FULL: ${{ inputs.debug_full }}
           # Extra CSS classes / attributes that mean "greyed out" on this site.
           # Fill in from a debug run: Settings -> Variables -> Actions.
           MONITOR_SOLDOUT_MARKERS: ${{ vars.MONITOR_SOLDOUT_MARKERS }}

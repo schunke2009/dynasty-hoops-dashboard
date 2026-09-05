@@ -140,6 +140,9 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+LAST_RESPONSE = {}
+
+
 def fetch(url):
     """Return page text, or None if the site would not talk to us."""
     request = urllib.request.Request(
@@ -153,6 +156,11 @@ def fetch(url):
     )
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
+            LAST_RESPONSE.update(
+                status=response.status,
+                final_url=response.geturl(),
+                content_type=response.headers.get("Content-Type", ""),
+            )
             raw = response.read()
             if response.headers.get("Content-Encoding") == "gzip":
                 raw = gzip.decompress(raw)
@@ -425,6 +433,29 @@ def main():
     if os.environ.get("DEBUG_DUMP") == "true":
         with open("debug_page.html", "w", encoding="utf-8") as handle:
             handle.write(html)
+        # The artifact is not reachable from every environment, so put the
+        # forensics in the log where they can always be read.
+        summarize(f"debug: HTTP {LAST_RESPONSE.get('status')} "
+                  f"{LAST_RESPONSE.get('content_type')}")
+        summarize(f"debug: final URL after redirects: "
+                  f"{LAST_RESPONSE.get('final_url')}")
+        title = re.search(r"(?is)<title[^>]*>(.*?)</title>", html)
+        summarize(f"debug: title: {title.group(1).strip() if title else '(none)'}")
+        for framework in ("__NEXT_DATA__", "__NUXT__", "__APOLLO_STATE__",
+                          "window.__INITIAL_STATE__", "data-reactroot"):
+            if framework in html:
+                summarize(f"debug: found {framework}")
+        scripts = re.findall(r'(?i)<script[^>]+src=["\']([^"\']+)["\']', html)
+        summarize(f"debug: {len(scripts)} script src(s): "
+                  + ", ".join(scripts[:15]))
+        endpoints = sorted(set(re.findall(
+            r'(?i)["\'](/[a-z0-9_\-/]*(?:api|menu|location|graphql)[a-z0-9_\-/]*)["\']',
+            html)))
+        summarize(f"debug: candidate endpoints in page: {endpoints[:25]}")
+        if os.environ.get("DEBUG_FULL") == "true":
+            summarize("debug: ---- BEGIN PAGE ----")
+            summarize(html[:60000])
+            summarize("debug: ---- END PAGE ----")
         found = windows(html, MARKUP_PROXIMITY_CHARS)
         summarize(f"debug: fetched {len(html)} bytes, {len(found)} item mention(s)")
         summarize(f"debug: page mentions '{LOCATION_TOKEN}': "
