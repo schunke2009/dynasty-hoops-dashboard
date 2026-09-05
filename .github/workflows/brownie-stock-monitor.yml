@@ -1,0 +1,83 @@
+name: Brownie Choc-A-Lot stock monitor
+
+# Watches the Cheesecake Factory Natick menu for the Brownie Choc-A-Lot and
+# opens an issue the moment it stops reading as sold out.
+#
+# NOTE: GitHub only runs `schedule` triggers from the DEFAULT branch. Until
+# this file lands on `main` the hourly check will not fire — use the manual
+# "Run workflow" button to test it from a feature branch.
+
+on:
+  schedule:
+    # Hourly at :17 (off the top of the hour, where every other cron job lives).
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Override the page to check (defaults to the Natick menu)'
+        required: false
+        type: string
+      test_push:
+        description: 'Send a test notification instead of checking stock'
+        required: false
+        default: false
+        type: boolean
+      debug:
+        description: 'Dump the fetched page + markup around the item as an artifact'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: brownie-stock-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the menu
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MONITOR_URL: ${{ inputs.url || 'https://www.thecheesecakefactory.com/locations/natick-ma/menu' }}
+          TEST_PUSH: ${{ inputs.test_push }}
+          DEBUG_DUMP: ${{ inputs.debug }}
+          # Extra CSS classes / attributes that mean "greyed out" on this site.
+          # Fill in from a debug run: Settings -> Variables -> Actions.
+          MONITOR_SOLDOUT_MARKERS: ${{ vars.MONITOR_SOLDOUT_MARKERS }}
+          # Phone push, in order of loudness. Set whichever you use as secrets.
+          # ALERT_WEBHOOK: an ntfy.sh topic URL (also detects Slack/Discord).
+          ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
+          # Pushover: set PUSHOVER_PRIORITY to 2 to re-alert until you tap it.
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
+          PUSHOVER_PRIORITY: ${{ vars.PUSHOVER_PRIORITY }}
+        run: python3 tools/brownie_monitor.py
+
+      - name: Upload the fetched page
+        if: ${{ inputs.debug == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetched-page
+          path: debug_page.html
+          if-no-files-found: warn
+
+      # Only when the status actually moved — otherwise the clock alone would
+      # put an hourly commit on the default branch forever.
+      - name: Remember what we saw
+        if: ${{ inputs.test_push != true && inputs.debug != true && steps.check.outputs.changed == 'true' }}
+        run: |
+          if [ -n "$(git status --porcelain tools/brownie_state.json)" ]; then
+            git config user.name  'brownie-monitor'
+            git config user.email 'noreply@github.com'
+            git add tools/brownie_state.json
+            git commit -m "Brownie monitor: $(python3 -c 'import json;print(json.load(open("tools/brownie_state.json"))["state"])')"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
