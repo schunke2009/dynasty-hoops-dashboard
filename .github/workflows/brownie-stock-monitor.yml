@@ -32,6 +32,11 @@ on:
         required: false
         default: false
         type: boolean
+      discover_api:
+        description: 'Search the JS bundles for the menu API endpoint (needs debug)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -55,6 +60,7 @@ jobs:
           TEST_PUSH: ${{ inputs.test_push }}
           DEBUG_DUMP: ${{ inputs.debug }}
           DEBUG_FULL: ${{ inputs.debug_full }}
+          DISCOVER_API: ${{ inputs.discover_api }}
           # Extra CSS classes / attributes that mean "greyed out" on this site.
           # Fill in from a debug run: Settings -> Variables -> Actions.
           MONITOR_SOLDOUT_MARKERS: ${{ vars.MONITOR_SOLDOUT_MARKERS }}

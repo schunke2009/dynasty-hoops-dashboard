@@ -452,6 +452,37 @@ def main():
             r'(?i)["\'](/[a-z0-9_\-/]*(?:api|menu|location|graphql)[a-z0-9_\-/]*)["\']',
             html)))
         summarize(f"debug: candidate endpoints in page: {endpoints[:25]}")
+        if os.environ.get("DISCOVER_API") == "true":
+            # An Angular/React shell keeps its API base inside the JS bundle.
+            # A JSON availability flag beats inferring stock from CSS, so it
+            # is worth digging the endpoint out once.
+            seen = set()
+            for src in scripts:
+                if not src.endswith(".js"):
+                    continue
+                bundle_url = urllib.parse.urljoin(LAST_RESPONSE.get("final_url", MENU_URL), src)
+                if "unpkg.com" in bundle_url or "cloudflareinsights" in bundle_url:
+                    continue
+                bundle = fetch(bundle_url)
+                if not bundle:
+                    summarize(f"debug: could not fetch {bundle_url}")
+                    continue
+                hits = set(re.findall(
+                    r"https?://[A-Za-z0-9._-]+(?:/[A-Za-z0-9._~:/?#@!$&*+,;=%-]*)?", bundle))
+                hits |= set(re.findall(r'["\'](/(?:api|v\d)/[A-Za-z0-9._~/{}-]+)["\']', bundle))
+                interesting = sorted(
+                    h for h in hits
+                    if re.search(r"api|menu|location|graphql|restaurant", h, re.I)
+                    and not re.search(r"w3\.org|schema\.org|googleapis|gstatic|"
+                                      r"doubleclick|facebook|adobe|typekit", h, re.I)
+                )
+                new = [h for h in interesting if h not in seen]
+                seen.update(new)
+                summarize(f"debug: {os.path.basename(bundle_url)} "
+                          f"({len(bundle)} bytes) -> {len(new)} candidate(s)")
+                for hit in new[:40]:
+                    summarize(f"    {hit}")
+
         if os.environ.get("DEBUG_FULL") == "true":
             summarize("debug: ---- BEGIN PAGE ----")
             summarize(html[:60000])
