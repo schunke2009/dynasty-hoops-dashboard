@@ -22,6 +22,31 @@ you have the GitHub mobile app installed.
    `MONITOR_URL` at a page that carries real stock state (the Cheesecake
    Factory ordering site, DoorDash, or Uber Eats for the Natick store).
 
+## The URL has to pin one restaurant
+
+The monitor refuses to report stock from a page that cannot prove which
+restaurant it is describing. Every fetched page must contain `Natick`
+(`MONITOR_LOCATION`); if it does not, the run records `LOCATION_UNCONFIRMED`
+and stays silent rather than reporting availability from the wrong store.
+
+That rules out two URLs people naturally reach for:
+
+| URL shape | Verdict |
+| --- | --- |
+| `doordash.com/business/the-cheesecake-factory-105/` | ❌ brand landing page — resolves to whatever store matches the *visitor's* address |
+| `thecheesecakefactory.com/locations/natick-ma/menu` | ⚠️ marketing menu — lists the national menu, likely never says "sold out" |
+| `doordash.com/store/the-cheesecake-factory-natick-<id>/` | ✅ one store, real availability |
+| `ubereats.com/store/.../<uuid>` | ✅ one store, real availability |
+
+To get the right one: open the DoorDash or Uber Eats **app**, set your address,
+search Cheesecake Factory, pick the **Natick** result, open the Brownie
+Choc-A-Lot item, then share → copy link. The URL must contain `/store/`.
+
+Ad-click and session parameters (`utm_*`, `gclid`, `gad_*`, `web_consumer_id`,
+…) are stripped before the page is fetched and before the URL is written to the
+state file, so a link copied out of a Google ad does not commit your DoorDash
+session id to the repo.
+
 ## Getting it loud, on your phone
 
 The GitHub issue is the backstop. For an actual buzz in your pocket, pick one

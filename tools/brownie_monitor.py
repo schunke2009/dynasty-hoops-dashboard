@@ -19,9 +19,9 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-MENU_URL = os.environ.get(
-    "MONITOR_URL",
-    "https://www.thecheesecakefactory.com/locations/natick-ma/menu",
+MENU_URL = (
+    os.environ.get("MONITOR_URL")
+    or "https://www.thecheesecakefactory.com/locations/natick-ma/menu"
 )
 # Any of these matching on the page counts as "the item is on the menu".
 ITEM_PATTERNS = os.environ.get(
@@ -29,6 +29,15 @@ ITEM_PATTERNS = os.environ.get(
     r"choc[\s\-]?a[\s\-]?lot|brownie[\s\-]?crunch",
 )
 STATE_PATH = os.environ.get("MONITOR_STATE_PATH") or "tools/brownie_state.json"
+# The page must prove it is the right restaurant before any result is trusted.
+LOCATION_TOKEN = os.environ.get("MONITOR_LOCATION") or "Natick"
+
+# Ad/session junk that does not affect the page but does leak who you are.
+TRACKING_PARAMS = (
+    "gclid", "gclsrc", "gbraid", "wbraid", "kclickid", "fbclid", "msclkid",
+    "web_consumer_id", "ignore_splash_experience", "_gl", "irclickid",
+)
+TRACKING_PREFIXES = ("utm_", "gad_")
 
 # Words that mean "yes it's on the menu, no you cannot have it".
 SOLD_OUT_MARKERS = [
@@ -50,6 +59,33 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
+
+
+def clean_url(url):
+    """Drop ad-click and session identifiers before we fetch or store a URL."""
+    parts = urllib.parse.urlsplit(url)
+    kept = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        if key not in TRACKING_PARAMS
+        and not key.startswith(TRACKING_PREFIXES)
+    ]
+    return urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path,
+         urllib.parse.urlencode(kept), "")
+    )
+
+
+def url_warning(url):
+    """Catch URLs that cannot possibly pin a single restaurant."""
+    path = urllib.parse.urlsplit(url).path
+    if "doordash.com" in url and path.startswith("/business/"):
+        return ("this is a DoorDash *brand* page, not a store page. It resolves "
+                "to whatever store matches the visitor's address, which from a "
+                "CI runner is not Natick. Use a /store/... URL.")
+    if "ubereats.com" in url and "/store/" not in path:
+        return "this Uber Eats URL is not a /store/... page, so it pins no restaurant."
+    return ""
 
 
 def now():
@@ -241,6 +277,9 @@ def summarize(line):
 
 
 def main():
+    global MENU_URL
+    MENU_URL = clean_url(MENU_URL)
+
     if os.environ.get("TEST_PUSH") == "true":
         delivered = push_alert(
             "Brownie monitor test",
@@ -266,7 +305,42 @@ def main():
         return 0
 
     state["consecutive_fetch_failures"] = 0
-    current, snippet = classify(to_text(html))
+    text = to_text(html)
+
+    if LOCATION_TOKEN.lower() not in text.lower():
+        # Wrong store, a geo-redirect, or a bot wall. Any of those make an
+        # "available" reading meaningless, so refuse to report one at all.
+        misses = state.get("consecutive_wrong_location", 0) + 1
+        state.update({
+            "consecutive_wrong_location": misses,
+            "state": "LOCATION_UNCONFIRMED",
+            "last_checked": now(),
+            "url": MENU_URL,
+        })
+        save_state(state)
+        hint = url_warning(MENU_URL)
+        summarize(
+            f"the page never mentions '{LOCATION_TOKEN}' ({misses} runs in a "
+            f"row) — not reporting stock from a page that cannot prove which "
+            f"restaurant it is describing." + (f" Likely cause: {hint}" if hint else "")
+        )
+        if misses == NOT_FOUND_PATIENCE and not state.get("location_reported"):
+            open_issue(
+                f"⚠️ Brownie monitor cannot confirm the {LOCATION_TOKEN} location",
+                f"`{MENU_URL}` has not mentioned `{LOCATION_TOKEN}` in "
+                f"{NOT_FOUND_PATIENCE} consecutive checks.\n\n"
+                + (f"{hint}\n\n" if hint else "")
+                + "Until the page proves it is the right restaurant, this "
+                "monitor will not report stock, because an 'available' reading "
+                "from the wrong store is worse than no reading at all."
+            )
+            state["location_reported"] = True
+            save_state(state)
+        return 0
+
+    state["consecutive_wrong_location"] = 0
+    state["location_reported"] = False
+    current, snippet = classify(text)
 
     if current == "NOT_FOUND":
         state["consecutive_not_found"] = state.get("consecutive_not_found", 0) + 1
