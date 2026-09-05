@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -27,7 +28,7 @@ ITEM_PATTERNS = os.environ.get(
     "MONITOR_ITEM_PATTERNS",
     r"choc[\s\-]?a[\s\-]?lot|brownie[\s\-]?crunch",
 )
-STATE_PATH = os.environ.get("MONITOR_STATE_PATH", "tools/brownie_state.json")
+STATE_PATH = os.environ.get("MONITOR_STATE_PATH") or "tools/brownie_state.json"
 
 # Words that mean "yes it's on the menu, no you cannot have it".
 SOLD_OUT_MARKERS = [
@@ -150,21 +151,85 @@ def open_issue(title, body):
         print(f"issue creation failed: {err}", file=sys.stderr)
 
 
-def send_webhook(message):
-    """Optional extra push channel (ntfy.sh, Pushover relay, Slack, whatever)."""
-    url = os.environ.get("ALERT_WEBHOOK")
-    if not url:
-        return
-    request = urllib.request.Request(
-        url,
-        data=message.encode("utf-8"),
-        headers={"Title": "Brownie Choc-A-Lot is back", "Priority": "high"},
-    )
+def post(url, data, headers, label):
+    """POST and report success by name, so the log says which channel fired."""
+    request = urllib.request.Request(url, data=data, headers=headers)
     try:
         urllib.request.urlopen(request, timeout=30).read()
-        print("webhook sent")
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError) as err:
-        print(f"webhook failed: {err}", file=sys.stderr)
+        print(f"push sent via {label}")
+        return True
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError,
+            UnicodeError, ValueError) as err:
+        print(f"push via {label} failed: {err}", file=sys.stderr)
+        return False
+
+
+def push_pushover(title, message, link):
+    """Pushover: custom alert sound, and optional retry-until-acknowledged."""
+    token = os.environ.get("PUSHOVER_TOKEN")
+    user = os.environ.get("PUSHOVER_USER")
+    if not (token and user):
+        return False
+    # Priority 2 is the obnoxious one: it re-alerts until you tap it.
+    priority = os.environ.get("PUSHOVER_PRIORITY") or "1"
+    fields = {
+        "token": token,
+        "user": user,
+        "title": title,
+        "message": message,
+        "url": link,
+        "url_title": "Open the menu",
+        "priority": priority,
+        "sound": os.environ.get("PUSHOVER_SOUND") or "persistent",
+    }
+    if priority == "2":
+        fields["retry"] = "60"      # re-alert every minute...
+        fields["expire"] = "3600"   # ...for an hour, or until acknowledged.
+    return post(
+        "https://api.pushover.net/1/messages.json",
+        urllib.parse.urlencode(fields).encode("utf-8"),
+        {"Content-Type": "application/x-www-form-urlencoded"},
+        "pushover",
+    )
+
+
+def push_ntfy(title, message, link):
+    """ntfy.sh: free, no account, and honors max priority on the phone."""
+    url = os.environ.get("ALERT_WEBHOOK")
+    if not url:
+        return False
+    lowered = url.lower()
+    if "hooks.slack.com" in lowered:
+        return post(url, json.dumps({"text": f"{title} — {message}"}).encode("utf-8"),
+                    {"Content-Type": "application/json"}, "slack")
+    if "discord.com/api/webhooks" in lowered:
+        return post(url, json.dumps({"content": f"**{title}** {message}"}).encode("utf-8"),
+                    {"Content-Type": "application/json"}, "discord")
+    # HTTP headers are latin-1 only, so the emoji rides in Tags, not Title.
+    ascii_title = title.encode("ascii", "ignore").decode().strip() or "Stock alert"
+    return post(
+        url,
+        message.encode("utf-8"),
+        {
+            "Title": ascii_title,
+            "Priority": os.environ.get("NTFY_PRIORITY") or "max",
+            "Tags": "cake,tada",
+            "Click": link,
+        },
+        "ntfy",
+    )
+
+
+def push_alert(title, message, link):
+    """Fire every configured push channel. Returns True if any got through."""
+    channels = [push_pushover(title, message, link), push_ntfy(title, message, link)]
+    if not any(channels):
+        print(
+            "no push channel configured or all failed — the GitHub issue is "
+            "the only notification for this alert",
+            file=sys.stderr,
+        )
+    return any(channels)
 
 
 def summarize(line):
@@ -176,6 +241,16 @@ def summarize(line):
 
 
 def main():
+    if os.environ.get("TEST_PUSH") == "true":
+        delivered = push_alert(
+            "Brownie monitor test",
+            "This is what a restock alert will look like. If you can read this "
+            "on your phone, the loud part works.",
+            MENU_URL,
+        )
+        summarize("test push delivered" if delivered else "test push reached nobody")
+        return 0
+
     state = load_state()
     previous = state.get("state", "UNKNOWN")
 
@@ -226,7 +301,11 @@ def main():
             f"Go get it before someone else does."
         )
         open_issue("🍫 Brownie Choc-A-Lot is back in stock (Natick)", body)
-        send_webhook(f"Brownie Choc-A-Lot is back at Cheesecake Factory Natick: {MENU_URL}")
+        push_alert(
+            "🍫 Brownie Choc-A-Lot is BACK",
+            "Available again at Cheesecake Factory Natick. Go.",
+            MENU_URL,
+        )
 
     # Silence is not success: if the item vanishes from the page entirely for
     # long enough, the page changed and this monitor is watching nothing.
@@ -245,6 +324,11 @@ def main():
         state["staleness_reported"] = False
 
     save_state(state)
+    if not (os.environ.get("ALERT_WEBHOOK") or os.environ.get("PUSHOVER_TOKEN")):
+        summarize(
+            "warning: no phone push configured (set ALERT_WEBHOOK or "
+            "PUSHOVER_TOKEN/PUSHOVER_USER) — a restock will only open a GitHub issue"
+        )
     summarize(f"{state['last_checked']} — {previous} -> {current} @ {MENU_URL}")
     return 0
 
