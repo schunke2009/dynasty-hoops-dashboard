@@ -77,6 +77,11 @@ MARKUP_SOLD_OUT_MARKERS = [
     '"disabled":true',
     'data-available="false"',
     'data-disabled="true"',
+    # Confirmed live on this site: the card carries
+    # class="c-product-card menu product112094280 disabled" while the item is
+    # out. Whitespace is stripped before matching, so this hits a class list
+    # ending in "disabled" without matching aria-/data-disabled="...".
+    'disabled"',
 ]
 # Tune these from a real page dump without editing code:
 #   MONITOR_SOLDOUT_MARKERS="css-1x2y3z,greyed-item"
@@ -140,8 +145,56 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+LAST_RESPONSE = {}
+# The menu is an Angular app, so a plain fetch returns an empty shell. Render
+# unless explicitly told not to (MONITOR_RENDER=plain for the raw HTML).
+RENDER = (os.environ.get("MONITOR_RENDER") or "browser") != "plain"
+
+
+def fetch_rendered(url):
+    """Load the page in a real browser and return the DOM after it settles."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as driver:
+        browser = driver.chromium.launch(args=["--disable-blink-features=AutomationControlled"])
+        try:
+            page = browser.new_page(
+                user_agent=USER_AGENT,
+                locale="en-US",
+                viewport={"width": 1280, "height": 2400},
+            )
+            response = page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            LAST_RESPONSE.update(
+                status=response.status if response else None,
+                final_url=page.url,
+                content_type="rendered",
+            )
+            # The menu arrives from an XHR after load, so wait for the item
+            # itself; falling back to network idle if the name never shows.
+            try:
+                page.wait_for_function(
+                    "() => /choc[\\s-]?a[\\s-]?lot|brownie[\\s-]?crunch/i"
+                    ".test(document.body.innerText)",
+                    timeout=30000,
+                )
+            except Exception:
+                try:
+                    page.wait_for_load_state("networkidle", timeout=20000)
+                except Exception:
+                    pass
+            return page.content()
+        finally:
+            browser.close()
+
+
 def fetch(url):
     """Return page text, or None if the site would not talk to us."""
+    if RENDER:
+        try:
+            return fetch_rendered(url)
+        except Exception as err:  # noqa: BLE001 - any browser failure falls back
+            print(f"render failed ({err}); falling back to a plain fetch",
+                  file=sys.stderr)
     request = urllib.request.Request(
         url,
         headers={
@@ -153,6 +206,11 @@ def fetch(url):
     )
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
+            LAST_RESPONSE.update(
+                status=response.status,
+                final_url=response.geturl(),
+                content_type=response.headers.get("Content-Type", ""),
+            )
             raw = response.read()
             if response.headers.get("Content-Encoding") == "gzip":
                 raw = gzip.decompress(raw)
@@ -425,6 +483,65 @@ def main():
     if os.environ.get("DEBUG_DUMP") == "true":
         with open("debug_page.html", "w", encoding="utf-8") as handle:
             handle.write(html)
+        # The artifact is not reachable from every environment, so put the
+        # forensics in the log where they can always be read.
+        summarize(f"debug: HTTP {LAST_RESPONSE.get('status')} "
+                  f"{LAST_RESPONSE.get('content_type')}")
+        summarize(f"debug: final URL after redirects: "
+                  f"{LAST_RESPONSE.get('final_url')}")
+        title = re.search(r"(?is)<title[^>]*>(.*?)</title>", html)
+        summarize(f"debug: title: {title.group(1).strip() if title else '(none)'}")
+        for framework in ("__NEXT_DATA__", "__NUXT__", "__APOLLO_STATE__",
+                          "window.__INITIAL_STATE__", "data-reactroot"):
+            if framework in html:
+                summarize(f"debug: found {framework}")
+        scripts = re.findall(r'(?i)<script[^>]+src=["\']([^"\']+)["\']', html)
+        summarize(f"debug: {len(scripts)} script src(s): "
+                  + ", ".join(scripts[:15]))
+        endpoints = sorted(set(re.findall(
+            r'(?i)["\'](/[a-z0-9_\-/]*(?:api|menu|location|graphql)[a-z0-9_\-/]*)["\']',
+            html)))
+        summarize(f"debug: candidate endpoints in page: {endpoints[:25]}")
+        if os.environ.get("DISCOVER_API") == "true":
+            # An Angular/React shell keeps its API base inside the JS bundle.
+            # A JSON availability flag beats inferring stock from CSS, so it
+            # is worth digging the endpoint out once.
+            seen = set()
+            for src in scripts:
+                if not src.endswith(".js"):
+                    continue
+                base = re.search(r'(?i)<base[^>]+href=["\']([^"\']+)["\']', html)
+                root = urllib.parse.urljoin(
+                    LAST_RESPONSE.get("final_url") or MENU_URL,
+                    base.group(1) if base else "/",
+                )
+                bundle_url = urllib.parse.urljoin(root, src)
+                if "unpkg.com" in bundle_url or "cloudflareinsights" in bundle_url:
+                    continue
+                bundle = fetch(bundle_url)
+                if not bundle:
+                    summarize(f"debug: could not fetch {bundle_url}")
+                    continue
+                hits = set(re.findall(
+                    r"https?://[A-Za-z0-9._-]+(?:/[A-Za-z0-9._~:/?#@!$&*+,;=%-]*)?", bundle))
+                hits |= set(re.findall(r'["\'](/(?:api|v\d)/[A-Za-z0-9._~/{}-]+)["\']', bundle))
+                interesting = sorted(
+                    h for h in hits
+                    if re.search(r"api|menu|location|graphql|restaurant", h, re.I)
+                    and not re.search(r"w3\.org|schema\.org|googleapis|gstatic|"
+                                      r"doubleclick|facebook|adobe|typekit", h, re.I)
+                )
+                new = [h for h in interesting if h not in seen]
+                seen.update(new)
+                summarize(f"debug: {os.path.basename(bundle_url)} "
+                          f"({len(bundle)} bytes) -> {len(new)} candidate(s)")
+                for hit in new[:40]:
+                    summarize(f"    {hit}")
+
+        if os.environ.get("DEBUG_FULL") == "true":
+            summarize("debug: ---- BEGIN PAGE ----")
+            summarize(html[:60000])
+            summarize("debug: ---- END PAGE ----")
         found = windows(html, MARKUP_PROXIMITY_CHARS)
         summarize(f"debug: fetched {len(html)} bytes, {len(found)} item mention(s)")
         summarize(f"debug: page mentions '{LOCATION_TOKEN}': "

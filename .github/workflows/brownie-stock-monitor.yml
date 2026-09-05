@@ -9,8 +9,10 @@ name: Brownie Choc-A-Lot stock monitor
 
 on:
   schedule:
-    # Hourly at :17 (off the top of the hour, where every other cron job lives).
-    - cron: '17 * * * *'
+    # Hourly at :17 (off the top of the hour, where every other cron job lives),
+    # but only 11:00-23:00 Eastern — the kitchen does not restock at 4am, and
+    # rendering a browser 24x7 burns Actions minutes for nothing.
+    - cron: '17 15-23,0-3 * * *'
   workflow_dispatch:
     inputs:
       url:
@@ -24,6 +26,16 @@ on:
         type: boolean
       debug:
         description: 'Dump the fetched page + markup around the item as an artifact'
+        required: false
+        default: false
+        type: boolean
+      debug_full:
+        description: 'Also print the raw page into the job log (needs debug)'
+        required: false
+        default: false
+        type: boolean
+      discover_api:
+        description: 'Search the JS bundles for the menu API endpoint (needs debug)'
         required: false
         default: false
         type: boolean
@@ -42,6 +54,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The menu is an Angular app: a plain fetch returns an empty shell, so
+      # the page has to be rendered to see what a customer sees.
+      - name: Cache the browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-v1
+
+      - name: Install Playwright
+        run: |
+          pip install --quiet playwright
+          playwright install --with-deps chromium
+
       - name: Check the menu
         id: check
         env:
@@ -49,6 +74,8 @@ jobs:
           MONITOR_URL: ${{ inputs.url || 'https://www.thecheesecakefactory.com/locations/natick-ma/menu' }}
           TEST_PUSH: ${{ inputs.test_push }}
           DEBUG_DUMP: ${{ inputs.debug }}
+          DEBUG_FULL: ${{ inputs.debug_full }}
+          DISCOVER_API: ${{ inputs.discover_api }}
           # Extra CSS classes / attributes that mean "greyed out" on this site.
           # Fill in from a debug run: Settings -> Variables -> Actions.
           MONITOR_SOLDOUT_MARKERS: ${{ vars.MONITOR_SOLDOUT_MARKERS }}
