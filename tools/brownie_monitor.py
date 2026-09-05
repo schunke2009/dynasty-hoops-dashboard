@@ -141,10 +141,55 @@ def now():
 
 
 LAST_RESPONSE = {}
+# The menu is an Angular app, so a plain fetch returns an empty shell. Render
+# unless explicitly told not to (MONITOR_RENDER=plain for the raw HTML).
+RENDER = (os.environ.get("MONITOR_RENDER") or "browser") != "plain"
+
+
+def fetch_rendered(url):
+    """Load the page in a real browser and return the DOM after it settles."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as driver:
+        browser = driver.chromium.launch(args=["--disable-blink-features=AutomationControlled"])
+        try:
+            page = browser.new_page(
+                user_agent=USER_AGENT,
+                locale="en-US",
+                viewport={"width": 1280, "height": 2400},
+            )
+            response = page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            LAST_RESPONSE.update(
+                status=response.status if response else None,
+                final_url=page.url,
+                content_type="rendered",
+            )
+            # The menu arrives from an XHR after load, so wait for the item
+            # itself; falling back to network idle if the name never shows.
+            try:
+                page.wait_for_function(
+                    "() => /choc[\\s-]?a[\\s-]?lot|brownie[\\s-]?crunch/i"
+                    ".test(document.body.innerText)",
+                    timeout=30000,
+                )
+            except Exception:
+                try:
+                    page.wait_for_load_state("networkidle", timeout=20000)
+                except Exception:
+                    pass
+            return page.content()
+        finally:
+            browser.close()
 
 
 def fetch(url):
     """Return page text, or None if the site would not talk to us."""
+    if RENDER:
+        try:
+            return fetch_rendered(url)
+        except Exception as err:  # noqa: BLE001 - any browser failure falls back
+            print(f"render failed ({err}); falling back to a plain fetch",
+                  file=sys.stderr)
     request = urllib.request.Request(
         url,
         headers={
@@ -460,7 +505,12 @@ def main():
             for src in scripts:
                 if not src.endswith(".js"):
                     continue
-                bundle_url = urllib.parse.urljoin(LAST_RESPONSE.get("final_url", MENU_URL), src)
+                base = re.search(r'(?i)<base[^>]+href=["\']([^"\']+)["\']', html)
+                root = urllib.parse.urljoin(
+                    LAST_RESPONSE.get("final_url") or MENU_URL,
+                    base.group(1) if base else "/",
+                )
+                bundle_url = urllib.parse.urljoin(root, src)
                 if "unpkg.com" in bundle_url or "cloudflareinsights" in bundle_url:
                     continue
                 bundle = fetch(bundle_url)

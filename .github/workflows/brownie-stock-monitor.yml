@@ -9,8 +9,10 @@ name: Brownie Choc-A-Lot stock monitor
 
 on:
   schedule:
-    # Hourly at :17 (off the top of the hour, where every other cron job lives).
-    - cron: '17 * * * *'
+    # Hourly at :17 (off the top of the hour, where every other cron job lives),
+    # but only 11:00-23:00 Eastern — the kitchen does not restock at 4am, and
+    # rendering a browser 24x7 burns Actions minutes for nothing.
+    - cron: '17 15-23,0-3 * * *'
   workflow_dispatch:
     inputs:
       url:
@@ -51,6 +53,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The menu is an Angular app: a plain fetch returns an empty shell, so
+      # the page has to be rendered to see what a customer sees.
+      - name: Cache the browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-v1
+
+      - name: Install Playwright
+        run: |
+          pip install --quiet playwright
+          playwright install --with-deps chromium
 
       - name: Check the menu
         id: check
