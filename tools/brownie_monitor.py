@@ -87,6 +87,15 @@ MARKUP_SOLD_OUT_MARKERS += [
 ]
 # Markup is dense, so look in a tighter window than the prose scan uses.
 MARKUP_PROXIMITY_CHARS = 400
+
+# A greyed-out card on this site is also not clickable, which is a far more
+# stable signal than any class name. To avoid reading "no link" as "sold out"
+# on a page that simply has no links (a JS app, a bot wall), we calibrate
+# against a control item that is always orderable: if the control is clickable
+# and the target is not, the target is out. If the control is not clickable
+# either, the heuristic abstains and the marker passes decide.
+CONTROL_PATTERN = os.environ.get("MONITOR_CONTROL_PATTERN") or r"salted[\s\-]?caramel"
+LINK_RE = re.compile(r"<a\b[^>]*\bhref\s*=", re.IGNORECASE)
 # How much text around an item mention to inspect for those markers.
 PROXIMITY_CHARS = 300
 # Consecutive runs that fail to find the item before we assume the page moved.
@@ -166,29 +175,51 @@ def to_text(html):
     return re.sub(r"\s+", " ", text)
 
 
-def windows(haystack, radius):
-    """Text around every mention of the item, largest signal first."""
-    found = []
-    for match in re.finditer(ITEM_PATTERNS, haystack, re.IGNORECASE):
-        start = max(0, match.start() - radius)
-        end = min(len(haystack), match.end() + radius)
-        found.append(haystack[start:end])
-    return found
+def mentions(haystack, pattern=None):
+    """Every match of the pattern (the item, by default)."""
+    return list(re.finditer(pattern or ITEM_PATTERNS, haystack, re.IGNORECASE))
+
+
+def windows(haystack, radius, pattern=None):
+    """Text around every mention of the pattern."""
+    return [
+        haystack[max(0, m.start() - radius):min(len(haystack), m.end() + radius)]
+        for m in mentions(haystack, pattern)
+    ]
+
+
+def inside_link(html, position):
+    """Is this offset inside an <a href=...> ... </a>?
+
+    Walks backwards for the nearest anchor boundary. A window-based check is
+    not good enough here: adjacent menu cards sit close together, so a
+    neighbouring item's link lands inside the window and reads as our own.
+    """
+    before = html[:position]
+    opened = -1
+    for match in LINK_RE.finditer(before):
+        opened = match.start()
+    return opened > before.rfind("</a>")
+
+
+def clickable(html, pattern=None):
+    """True if any mention of the pattern sits inside a link."""
+    return any(inside_link(html, m.start()) for m in mentions(html, pattern))
 
 
 def classify(text, html=""):
     """AVAILABLE / SOLD_OUT / NOT_FOUND, plus the snippet that decided it.
 
-    Two passes, because "sold out" and "greyed out" look nothing alike:
-    prose markers in the flattened text, and disabled/unavailable markers in
-    the raw markup around the item.
+    Three passes, because "sold out" and "greyed out" look nothing alike:
+    disabled markers in the raw markup, sold-out wording in the prose, and
+    finally whether the item is clickable at all.
     """
     prose = windows(text, PROXIMITY_CHARS)
     markup = windows(html, MARKUP_PROXIMITY_CHARS) if html else []
     if not prose and not markup:
         return "NOT_FOUND", ""
 
-    # A greyed-out control is the strongest signal on the page, so it wins.
+    # A disabled control is the strongest signal on the page, so it wins.
     for snippet in markup:
         lowered = re.sub(r"\s+", "", snippet.lower())
         hit = next((m for m in MARKUP_SOLD_OUT_MARKERS
@@ -201,6 +232,16 @@ def classify(text, html=""):
         hit = next((m for m in SOLD_OUT_MARKERS if m in lowered), None)
         if hit:
             return "SOLD_OUT", f"[text marker: {hit}] {snippet.strip()}"
+
+    # Greyed out and unclickable: no marker to match, so compare against an
+    # item known to be orderable. Abstains when the control is not a link
+    # either, which is what a JavaScript shell or a bot wall looks like.
+    if html and CONTROL_PATTERN and clickable(html, CONTROL_PATTERN):
+        if not clickable(html):
+            return "SOLD_OUT", (
+                "[item is not a link, while the control item is] "
+                + (markup[0].strip() if markup else "")
+            )
 
     # Nothing anywhere says you cannot have it.
     return "AVAILABLE", (prose or markup)[0].strip()

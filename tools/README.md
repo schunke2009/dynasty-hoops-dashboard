@@ -34,8 +34,18 @@ The item does not have to say the words. Detection runs two passes:
 2. **Text pass** (flattened prose within 300 chars): "sold out", "currently
    unavailable", "86'd", and friends.
 
-Markup wins when both are present. Only when neither pass finds anything does
-the item count as available.
+3. **Clickability pass**: on this site a greyed-out card is also not a link.
+   The item counts as unavailable when its name does **not** sit inside an
+   `<a href>` while a control item that is always orderable
+   (`MONITOR_CONTROL_PATTERN`, default Salted Caramel Cheesecake) does. If the
+   control is not a link either, the check abstains — that is what a
+   JavaScript shell or a bot wall looks like, and guessing there would be
+   worse than saying nothing.
+
+Earlier passes win. Only when all three find nothing does the item count as
+available. Clickability is checked by walking back from the item name to the
+nearest anchor boundary, not by scanning a window — adjacent menu cards sit
+close enough that a neighbour's link otherwise reads as our own.
 
 ### If the real page uses a class I did not guess
 
