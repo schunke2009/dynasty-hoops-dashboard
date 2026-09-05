@@ -22,6 +22,39 @@ you have the GitHub mobile app installed.
    `MONITOR_URL` at a page that carries real stock state (the Cheesecake
    Factory ordering site, DoorDash, or Uber Eats for the Natick store).
 
+## How "sold out" is detected
+
+The item does not have to say the words. Detection runs two passes:
+
+1. **Markup pass** (raw HTML within 400 chars of the item): disabled classes
+   and attributes — `is-disabled`, `sold-out`, `out-of-stock`, `aria-disabled`,
+   `data-available="false"` — plus false availability flags in embedded JSON
+   (`"available":false`, `"inStock":false`, …). This is what a *greyed out*
+   item actually looks like in the DOM.
+2. **Text pass** (flattened prose within 300 chars): "sold out", "currently
+   unavailable", "86'd", and friends.
+
+Markup wins when both are present. Only when neither pass finds anything does
+the item count as available.
+
+### If the real page uses a class I did not guess
+
+Run the workflow with **debug** ticked. It dumps the fetched HTML as a
+downloadable artifact and prints the markup around each item mention to the job
+summary. Find the class the greyed-out item carries, then add it as a repo
+**variable** `MONITOR_SOLDOUT_MARKERS` (comma-separated) — no code change
+needed.
+
+Because the item is known to be sold out right now, the very first run is a
+free test: **it should report `SOLD_OUT`.** If it reports `AVAILABLE`, the
+detector is missing the greyed-out signal and needs a marker from a debug dump.
+A monitor that thinks a sold-out item is available will never tell you anything
+useful, so treat that first result as the real acceptance test.
+
+If a sold-out streak runs past `MONITOR_STUCK_DAYS` (default 10) with no
+change, it opens an issue asking you to eyeball the page — an eternal
+`SOLD_OUT` is more often a broken selector than a cursed dessert.
+
 ## The URL has to pin one restaurant
 
 The monitor refuses to report stock from a page that cannot prove which

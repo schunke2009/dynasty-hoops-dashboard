@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      debug:
+        description: 'Dump the fetched page + markup around the item as an artifact'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -42,6 +47,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MONITOR_URL: ${{ inputs.url || 'https://www.thecheesecakefactory.com/locations/natick-ma/menu' }}
           TEST_PUSH: ${{ inputs.test_push }}
+          DEBUG_DUMP: ${{ inputs.debug }}
+          # Extra CSS classes / attributes that mean "greyed out" on this site.
+          # Fill in from a debug run: Settings -> Variables -> Actions.
+          MONITOR_SOLDOUT_MARKERS: ${{ vars.MONITOR_SOLDOUT_MARKERS }}
           # Phone push, in order of loudness. Set whichever you use as secrets.
           # ALERT_WEBHOOK: an ntfy.sh topic URL (also detects Slack/Discord).
           ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
@@ -51,8 +60,16 @@ jobs:
           PUSHOVER_PRIORITY: ${{ vars.PUSHOVER_PRIORITY }}
         run: python3 tools/brownie_monitor.py
 
+      - name: Upload the fetched page
+        if: ${{ inputs.debug == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetched-page
+          path: debug_page.html
+          if-no-files-found: warn
+
       - name: Remember what we saw
-        if: ${{ inputs.test_push != true }}
+        if: ${{ inputs.test_push != true && inputs.debug != true }}
         run: |
           if [ -n "$(git status --porcelain tools/brownie_state.json)" ]; then
             git config user.name  'brownie-monitor'

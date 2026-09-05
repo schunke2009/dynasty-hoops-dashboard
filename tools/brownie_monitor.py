@@ -39,7 +39,7 @@ TRACKING_PARAMS = (
 )
 TRACKING_PREFIXES = ("utm_", "gad_")
 
-# Words that mean "yes it's on the menu, no you cannot have it".
+# Visible words meaning "on the menu, but you cannot have it".
 SOLD_OUT_MARKERS = [
     "sold out",
     "soldout",
@@ -50,10 +50,49 @@ SOLD_OUT_MARKERS = [
     "unavailable",
     "86'd",
 ]
+# A greyed-out item usually says nothing at all — it carries a disabled class,
+# an ARIA attribute, or a false availability flag in an embedded JSON payload.
+# These are matched against raw HTML near the item, not the flattened text.
+MARKUP_SOLD_OUT_MARKERS = [
+    'aria-disabled="true"',
+    "aria-disabled='true'",
+    "sold-out",
+    "sold_out",
+    "soldout",
+    "out-of-stock",
+    "out_of_stock",
+    "outofstock",
+    "is-disabled",
+    "is-unavailable",
+    "isunavailable",
+    "not-available",
+    '"available":false',
+    '"isavailable":false',
+    '"is_available":false',
+    '"instock":false',
+    '"in_stock":false',
+    '"soldout":true',
+    '"sold_out":true',
+    '"outofstock":true',
+    '"disabled":true',
+    'data-available="false"',
+    'data-disabled="true"',
+]
+# Tune these from a real page dump without editing code:
+#   MONITOR_SOLDOUT_MARKERS="css-1x2y3z,greyed-item"
+MARKUP_SOLD_OUT_MARKERS += [
+    marker.strip().lower()
+    for marker in (os.environ.get("MONITOR_SOLDOUT_MARKERS") or "").split(",")
+    if marker.strip()
+]
+# Markup is dense, so look in a tighter window than the prose scan uses.
+MARKUP_PROXIMITY_CHARS = 400
 # How much text around an item mention to inspect for those markers.
 PROXIMITY_CHARS = 300
 # Consecutive runs that fail to find the item before we assume the page moved.
 NOT_FOUND_PATIENCE = 6
+# An unbroken sold-out streak this long is suspicious enough to ask a human.
+STUCK_DAYS = int(os.environ.get("MONITOR_STUCK_DAYS") or 10)
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -127,24 +166,44 @@ def to_text(html):
     return re.sub(r"\s+", " ", text)
 
 
-def classify(text):
-    """AVAILABLE / SOLD_OUT / NOT_FOUND, plus the snippet that decided it."""
-    matches = list(re.finditer(ITEM_PATTERNS, text, re.IGNORECASE))
-    if not matches:
+def windows(haystack, radius):
+    """Text around every mention of the item, largest signal first."""
+    found = []
+    for match in re.finditer(ITEM_PATTERNS, haystack, re.IGNORECASE):
+        start = max(0, match.start() - radius)
+        end = min(len(haystack), match.end() + radius)
+        found.append(haystack[start:end])
+    return found
+
+
+def classify(text, html=""):
+    """AVAILABLE / SOLD_OUT / NOT_FOUND, plus the snippet that decided it.
+
+    Two passes, because "sold out" and "greyed out" look nothing alike:
+    prose markers in the flattened text, and disabled/unavailable markers in
+    the raw markup around the item.
+    """
+    prose = windows(text, PROXIMITY_CHARS)
+    markup = windows(html, MARKUP_PROXIMITY_CHARS) if html else []
+    if not prose and not markup:
         return "NOT_FOUND", ""
 
-    snippets = []
-    for match in matches:
-        start = max(0, match.start() - PROXIMITY_CHARS)
-        end = min(len(text), match.end() + PROXIMITY_CHARS)
-        snippets.append(text[start:end])
+    # A greyed-out control is the strongest signal on the page, so it wins.
+    for snippet in markup:
+        lowered = re.sub(r"\s+", "", snippet.lower())
+        hit = next((m for m in MARKUP_SOLD_OUT_MARKERS
+                    if m.replace(" ", "") in lowered), None)
+        if hit:
+            return "SOLD_OUT", f"[markup marker: {hit}] {snippet.strip()}"
 
-    # Available if *any* mention of the item is free of a sold-out marker.
-    for snippet in snippets:
+    for snippet in prose:
         lowered = snippet.lower()
-        if not any(marker in lowered for marker in SOLD_OUT_MARKERS):
-            return "AVAILABLE", snippet.strip()
-    return "SOLD_OUT", snippets[0].strip()
+        hit = next((m for m in SOLD_OUT_MARKERS if m in lowered), None)
+        if hit:
+            return "SOLD_OUT", f"[text marker: {hit}] {snippet.strip()}"
+
+    # Nothing anywhere says you cannot have it.
+    return "AVAILABLE", (prose or markup)[0].strip()
 
 
 def load_state():
@@ -307,6 +366,20 @@ def main():
     state["consecutive_fetch_failures"] = 0
     text = to_text(html)
 
+    if os.environ.get("DEBUG_DUMP") == "true":
+        with open("debug_page.html", "w", encoding="utf-8") as handle:
+            handle.write(html)
+        found = windows(html, MARKUP_PROXIMITY_CHARS)
+        summarize(f"debug: fetched {len(html)} bytes, {len(found)} item mention(s)")
+        summarize(f"debug: page mentions '{LOCATION_TOKEN}': "
+                  f"{LOCATION_TOKEN.lower() in text.lower()}")
+        for index, snippet in enumerate(found[:3], 1):
+            summarize(f"\n<details><summary>markup around mention {index}"
+                      f"</summary>\n\n```html\n{snippet[:1500]}\n```\n</details>")
+        if not found:
+            summarize("debug: item never appears in the HTML — the menu is "
+                      "almost certainly rendered by JavaScript after load.")
+
     if LOCATION_TOKEN.lower() not in text.lower():
         # Wrong store, a geo-redirect, or a bot wall. Any of those make an
         # "available" reading meaningless, so refuse to report one at all.
@@ -340,7 +413,7 @@ def main():
 
     state["consecutive_wrong_location"] = 0
     state["location_reported"] = False
-    current, snippet = classify(text)
+    current, snippet = classify(text, html)
 
     if current == "NOT_FOUND":
         state["consecutive_not_found"] = state.get("consecutive_not_found", 0) + 1
@@ -396,6 +469,25 @@ def main():
         state["staleness_reported"] = True
     if state["consecutive_not_found"] == 0:
         state["staleness_reported"] = False
+
+    if current != previous:
+        state["stuck_reported"] = False
+    if current == "SOLD_OUT" and not state.get("stuck_reported"):
+        try:
+            streak = datetime.now(timezone.utc) - datetime.fromisoformat(state["changed_at"])
+        except (KeyError, ValueError):
+            streak = None
+        if streak is not None and streak.days >= STUCK_DAYS:
+            open_issue(
+                "🤔 Brownie monitor has read sold out for "
+                f"{streak.days} days straight",
+                f"`{MENU_URL}` has reported `SOLD_OUT` without a break since "
+                f"{state['changed_at']}.\n\nThat is possible, but it is also "
+                "what a detector matching the wrong element looks like. Worth "
+                "eyeballing the page once.\n\nMatched context:\n\n> "
+                f"{state.get('snippet', '')[:500]}",
+            )
+            state["stuck_reported"] = True
 
     save_state(state)
     if not (os.environ.get("ALERT_WEBHOOK") or os.environ.get("PUSHOVER_TOKEN")):
