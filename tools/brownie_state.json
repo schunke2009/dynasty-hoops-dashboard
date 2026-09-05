@@ -1,0 +1,13 @@
+{
+  "changed_at": "2026-09-05T23:19:29+00:00",
+  "consecutive_fetch_failures": 0,
+  "consecutive_not_found": 0,
+  "consecutive_wrong_location": 0,
+  "last_checked": "2026-09-05T23:19:29+00:00",
+  "location_reported": false,
+  "snippet": "[markup marker: disabled\"] menu__cards--product\"><app-custom-default-product-card _ngcontent-ng-c2949125351=\"\" _nghost-ng-c3899202425=\"\"><div _ngcontent-ng-c3899202425=\"\" class=\"c-product-card menu product112094280 disabled\"><div _ngcontent-ng-c3899202425=\"\" class=\"c-product-card__info__container\"><div _ngcontent-ng-c3899202425=\"\" class=\"c-product-card__info\"><span _ngcontent-ng-c3899202425=\"\" class=\"c-product-card__name\"> Brownie Crunch Choc-a-Lot Cheesecake (Temporarily Unavailable)<!----><!--",
+  "staleness_reported": false,
+  "state": "SOLD_OUT",
+  "stuck_reported": false,
+  "url": "https://www.thecheesecakefactory.com/locations/natick-ma/menu"
+}
