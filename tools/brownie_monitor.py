@@ -255,6 +255,19 @@ def load_state():
         return {}
 
 
+def signature(state):
+    """The parts of the state worth a commit. Excludes the clock."""
+    return {k: v for k, v in state.items() if k not in ("last_checked", "snippet")}
+
+
+def report_change(changed):
+    """Tell the workflow whether this run is worth committing."""
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"changed={'true' if changed else 'false'}\n")
+
+
 def save_state(state):
     os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
     with open(STATE_PATH, "w", encoding="utf-8") as handle:
@@ -379,6 +392,7 @@ def summarize(line):
 def main():
     global MENU_URL
     MENU_URL = clean_url(MENU_URL)
+    baseline = signature(load_state())
 
     if os.environ.get("TEST_PUSH") == "true":
         delivered = push_alert(
@@ -398,6 +412,7 @@ def main():
         state["last_checked"] = now()
         state["consecutive_fetch_failures"] = state.get("consecutive_fetch_failures", 0) + 1
         save_state(state)
+        report_change(signature(state) != baseline)
         summarize(
             f"could not reach {MENU_URL} "
             f"({state['consecutive_fetch_failures']} in a row) — state left at {previous}"
@@ -450,6 +465,7 @@ def main():
             )
             state["location_reported"] = True
             save_state(state)
+        report_change(signature(state) != baseline)
         return 0
 
     state["consecutive_wrong_location"] = 0
@@ -531,6 +547,7 @@ def main():
             state["stuck_reported"] = True
 
     save_state(state)
+    report_change(signature(state) != baseline)
     if not (os.environ.get("ALERT_WEBHOOK") or os.environ.get("PUSHOVER_TOKEN")):
         summarize(
             "warning: no phone push configured (set ALERT_WEBHOOK or "
