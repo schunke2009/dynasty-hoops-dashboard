@@ -77,6 +77,11 @@ MARKUP_SOLD_OUT_MARKERS = [
     '"disabled":true',
     'data-available="false"',
     'data-disabled="true"',
+    # Confirmed live on this site: the card carries
+    # class="c-product-card menu product112094280 disabled" while the item is
+    # out. Whitespace is stripped before matching, so this hits a class list
+    # ending in "disabled" without matching aria-/data-disabled="...".
+    'disabled"',
 ]
 # Tune these from a real page dump without editing code:
 #   MONITOR_SOLDOUT_MARKERS="css-1x2y3z,greyed-item"

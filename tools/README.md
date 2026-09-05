@@ -22,6 +22,25 @@ you have the GitHub mobile app installed.
    `MONITOR_URL` at a page that carries real stock state (the Cheesecake
    Factory ordering site, DoorDash, or Uber Eats for the Natick store).
 
+## What the live page actually looks like
+
+Confirmed from a rendered run on 2026-09-05. The menu is an **Angular app** —
+a plain fetch returns a 23 KB shell with no menu in it at all — so the checker
+drives headless Chromium and waits for the item to appear. While the item is
+out, its card renders as:
+
+```html
+<div class="c-product-card menu product112094280 disabled">
+  <span class="c-product-card__name">
+    Brownie Crunch Choc-a-Lot Cheesecake (Temporarily Unavailable)
+  </span>
+  <span class="c-product-card__cost">$13.50</span>
+```
+
+Two independent signals, either of which is enough: the `disabled` class on the
+card, and the `(Temporarily Unavailable)` suffix on the name. When it comes
+back both disappear and the card becomes a link.
+
 ## How "sold out" is detected
 
 The item does not have to say the words. Detection runs two passes:
