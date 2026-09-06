@@ -360,6 +360,13 @@ def open_issue(title, body):
 
 def post(url, data, headers, label):
     """POST and report success by name, so the log says which channel fired."""
+    # Discord is behind Cloudflare, which bans urllib's default user agent
+    # outright (error 1010). Identify ourselves on every webhook call.
+    headers = dict(headers)
+    headers.setdefault(
+        "User-Agent",
+        "BrownieMonitor/1.0 (+https://github.com/schunke2009/dynasty-hoops-dashboard)",
+    )
     request = urllib.request.Request(url, data=data, headers=headers)
     try:
         urllib.request.urlopen(request, timeout=30).read()
