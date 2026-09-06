@@ -412,11 +412,13 @@ def push_ntfy(title, message, link):
     if not url:
         return False
     lowered = url.lower()
+    # Slack and Discord have no equivalent of ntfy's tap-through Click
+    # header, so the link has to be in the message body itself.
     if "hooks.slack.com" in lowered:
-        return post(url, json.dumps({"text": f"{title} — {message}"}).encode("utf-8"),
+        return post(url, json.dumps({"text": f"{title} — {message}\n{link}"}).encode("utf-8"),
                     {"Content-Type": "application/json"}, "slack")
     if "discord.com/api/webhooks" in lowered:
-        return post(url, json.dumps({"content": f"**{title}** {message}"}).encode("utf-8"),
+        return post(url, json.dumps({"content": f"**{title}**\n{message}\n{link}"}).encode("utf-8"),
                     {"Content-Type": "application/json"}, "discord")
     # HTTP headers are latin-1 only, so the emoji rides in Tags, not Title.
     ascii_title = title.encode("ascii", "ignore").decode().strip() or "Stock alert"
