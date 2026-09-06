@@ -9,10 +9,16 @@ name: Brownie Choc-A-Lot stock monitor
 
 on:
   schedule:
-    # Hourly at :17 (off the top of the hour, where every other cron job lives),
-    # but only 11:00-23:00 Eastern — the kitchen does not restock at 4am, and
+    # 11:00-23:00 Eastern only: the kitchen does not restock at 4am, and
     # rendering a browser 24x7 burns Actions minutes for nothing.
+    #
+    # Twice an hour, because GitHub's scheduler is best-effort and drops
+    # slots: of the first five slots this workflow had, exactly one ran, and
+    # that one was 90 minutes late. Two attempts an hour means a dropped slot
+    # costs half an hour of coverage instead of a whole one. Minutes are off
+    # :00 and :30, where every other cron job on the platform piles up.
     - cron: '17 15-23,0-3 * * *'
+    - cron: '47 15-23,0-3 * * *'
   workflow_dispatch:
     inputs:
       url:
