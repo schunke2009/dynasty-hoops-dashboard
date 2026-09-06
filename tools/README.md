@@ -125,6 +125,28 @@ The GitHub issue is the backstop. For an actual buzz in your pocket, pick one
 Sends at `max` priority, which pings loudly and pops over Do Not Disturb on
 Android. Override with the `NTFY_PRIORITY` env var if that is too much.
 
+### Email and SMS, without relying on push at all
+
+ntfy can deliver the same alert as an email, server-side. Add a repo secret:
+
+| Name | Value |
+| --- | --- |
+| `ALERT_EMAIL` | where to send it |
+
+Point it at a normal inbox, or at a carrier email-to-SMS gateway to receive an
+actual text message:
+
+| Carrier | Gateway |
+| --- | --- |
+| Verizon | `5085551234@vtext.com` |
+| AT&T | `5085551234@txt.att.net` |
+| T-Mobile | `5085551234@tmomail.net` |
+| Google Fi | `5085551234@msg.fi.google.com` |
+
+This path never touches APNs, so it works even when the phone refuses to show
+a push banner. ntfy.sh rate-limits outbound email for anonymous users, which is
+irrelevant here — this alert fires roughly never.
+
 ### Pushover — ~$5 one-time, the loudest option
 
 1. Install Pushover, create an application, note the user key and API token.

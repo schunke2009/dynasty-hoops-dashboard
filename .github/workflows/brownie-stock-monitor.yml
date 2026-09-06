@@ -82,6 +82,10 @@ jobs:
           # Phone push, in order of loudness. Set whichever you use as secrets.
           # ALERT_WEBHOOK: an ntfy.sh topic URL (also detects Slack/Discord).
           ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
+          # ntfy also emails the alert here. Use an inbox, or a carrier
+          # email-to-SMS gateway to receive it as a text message. Neither
+          # depends on the phone accepting a push notification.
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           # Pushover: set PUSHOVER_PRIORITY to 2 to re-alert until you tap it.
           PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
           PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}

@@ -414,17 +414,19 @@ def push_ntfy(title, message, link):
                     {"Content-Type": "application/json"}, "discord")
     # HTTP headers are latin-1 only, so the emoji rides in Tags, not Title.
     ascii_title = title.encode("ascii", "ignore").decode().strip() or "Stock alert"
-    return post(
-        url,
-        message.encode("utf-8"),
-        {
-            "Title": ascii_title,
-            "Priority": os.environ.get("NTFY_PRIORITY") or "max",
-            "Tags": "cake,tada",
-            "Click": link,
-        },
-        "ntfy",
-    )
+    headers = {
+        "Title": ascii_title,
+        "Priority": os.environ.get("NTFY_PRIORITY") or "max",
+        "Tags": "cake,tada",
+        "Click": link,
+    }
+    # ntfy will also deliver the message as email. Point this at a normal
+    # inbox, or at a carrier email-to-SMS gateway to get an actual text.
+    # Neither path depends on the phone accepting a push notification.
+    recipient = os.environ.get("ALERT_EMAIL")
+    if recipient:
+        headers["Email"] = recipient
+    return post(url, f"{message}\n\n{link}".encode("utf-8"), headers, "ntfy")
 
 
 def push_alert(title, message, link):
