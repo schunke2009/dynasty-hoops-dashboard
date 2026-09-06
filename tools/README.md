@@ -11,10 +11,14 @@ you have the GitHub mobile app installed.
 
 ## Two things to know
 
-1. **Scheduled runs only fire from the default branch.** GitHub ignores `cron`
-   on feature branches. Merge to `main` or the hourly check never happens.
-   `workflow_dispatch` ("Run workflow") works from any branch, so use that to
-   test first.
+1. **Scheduled runs only fire from the default branch,** and even then GitHub
+   treats `cron` as best-effort. Of this workflow's first five slots, one ran,
+   90 minutes late. That is normal for Actions: schedules are the lowest
+   priority queue and slots get delayed or dropped under load. The workflow
+   asks twice an hour so a dropped slot costs half an hour of coverage rather
+   than a whole one. If you need guaranteed timing, drive it from an external
+   scheduler via `repository_dispatch` instead. `workflow_dispatch` ("Run
+   workflow") works from any branch and fires immediately.
 2. **The menu page may not publish per-restaurant availability.** Marketing
    menus usually list the whole national menu regardless of what any one
    kitchen has left. The first run says so out loud if it sees the item as
