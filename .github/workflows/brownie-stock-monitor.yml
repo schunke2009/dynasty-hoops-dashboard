@@ -76,6 +76,9 @@ jobs:
           DEBUG_DUMP: ${{ inputs.debug }}
           DEBUG_FULL: ${{ inputs.debug_full }}
           DISCOVER_API: ${{ inputs.discover_api }}
+          # Post the status on every run, good news or bad. Set a repo
+          # variable REPORT_EVERY_RUN to 'false' to go back to alert-only.
+          REPORT_EVERY_RUN: ${{ vars.REPORT_EVERY_RUN || 'true' }}
           # Extra CSS classes / attributes that mean "greyed out" on this site.
           # Fill in from a debug run: Settings -> Variables -> Actions.
           MONITOR_SOLDOUT_MARKERS: ${{ vars.MONITOR_SOLDOUT_MARKERS }}
