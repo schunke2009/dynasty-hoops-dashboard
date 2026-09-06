@@ -365,8 +365,14 @@ def post(url, data, headers, label):
         urllib.request.urlopen(request, timeout=30).read()
         print(f"push sent via {label}")
         return True
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError,
-            UnicodeError, ValueError) as err:
+    except urllib.error.HTTPError as err:
+        try:
+            detail = err.read().decode("utf-8", errors="replace")[:400].strip()
+        except OSError:
+            detail = ""
+        print(f"push via {label} failed: {err} {detail}", file=sys.stderr)
+        return False
+    except (urllib.error.URLError, OSError, UnicodeError, ValueError) as err:
         print(f"push via {label} failed: {err}", file=sys.stderr)
         return False
 
@@ -420,13 +426,21 @@ def push_ntfy(title, message, link):
         "Tags": "cake,tada",
         "Click": link,
     }
-    # ntfy will also deliver the message as email. Point this at a normal
-    # inbox, or at a carrier email-to-SMS gateway to get an actual text.
-    # Neither path depends on the phone accepting a push notification.
+    body = f"{message}\n\n{link}".encode("utf-8")
+    delivered = post(url, body, headers, "ntfy")
+
+    # Email goes as a SEPARATE request. Bundling it cost us a whole alert
+    # once: ntfy rejects the entire message if it dislikes the address, so a
+    # bad recipient silently took the push down with it.
     recipient = os.environ.get("ALERT_EMAIL")
     if recipient:
-        headers["Email"] = recipient
-    return post(url, f"{message}\n\n{link}".encode("utf-8"), headers, "ntfy")
+        delivered |= post(
+            url,
+            body,
+            {"Title": ascii_title, "Email": recipient.strip(), "Tags": "cake"},
+            "ntfy-email",
+        )
+    return delivered
 
 
 def push_alert(title, message, link):
