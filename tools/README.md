@@ -169,6 +169,20 @@ out during the one hour the cheesecake exists.
 Every normal run also prints a warning to the job summary when no push channel
 is configured, so a silent monitor cannot masquerade as a working one.
 
+## Hourly status reports
+
+By default the monitor posts the result of **every** run, not just changes:
+
+- `🚫 Still sold out` — the usual case
+- `✅ Still available` — it is orderable and you already know
+- `❓ Not on the menu` / `⚠️` variants — something is off with the page
+
+A restock still sends the distinct `🍫 Brownie Choc-A-Lot is BACK` alert, and
+that run skips the routine heartbeat so you never get two messages at once.
+
+To go back to alert-only silence, add a repo **variable** (not a secret)
+`REPORT_EVERY_RUN` = `false`.
+
 ## Turning it off
 
 Actions tab → the workflow → **⋯** → **Disable workflow**. Or delete

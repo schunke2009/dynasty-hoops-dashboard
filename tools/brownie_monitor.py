@@ -107,6 +107,9 @@ PROXIMITY_CHARS = 300
 NOT_FOUND_PATIENCE = 6
 # An unbroken sold-out streak this long is suspicious enough to ask a human.
 STUCK_DAYS = int(os.environ.get("MONITOR_STUCK_DAYS") or 10)
+# Report the status on every run, not only when it changes. The restock alert
+# still fires on its own; this is the routine "still nothing" heartbeat.
+REPORT_EVERY_RUN = (os.environ.get("REPORT_EVERY_RUN") or "").lower() == "true"
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -500,6 +503,13 @@ def main():
             f"could not reach {MENU_URL} "
             f"({state['consecutive_fetch_failures']} in a row) — state left at {previous}"
         )
+        if REPORT_EVERY_RUN:
+            push_alert(
+                "⚠️ Brownie check: menu unreachable",
+                f"Could not load the menu ({state['consecutive_fetch_failures']} "
+                f"in a row). Last known status stays {previous}.",
+                MENU_URL,
+            )
         return 0
 
     state["consecutive_fetch_failures"] = 0
@@ -608,6 +618,13 @@ def main():
             state["location_reported"] = True
             save_state(state)
         report_change(signature(state) != baseline)
+        if REPORT_EVERY_RUN:
+            push_alert(
+                f"⚠️ Brownie check: could not confirm {LOCATION_TOKEN}",
+                f"The page never mentioned '{LOCATION_TOKEN}', so no stock "
+                "reading was trusted this run.",
+                MENU_URL,
+            )
         return 0
 
     state["consecutive_wrong_location"] = 0
@@ -626,6 +643,7 @@ def main():
     state["url"] = MENU_URL
     state["snippet"] = snippet[:500]
 
+    alerted = False
     if current == "AVAILABLE" and previous == "UNKNOWN":
         # First ever run. We were told it is sold out, so a page that already
         # reads "available" is not a restock — it is a page that does not
@@ -652,6 +670,7 @@ def main():
             "Available again at Cheesecake Factory Natick. Go.",
             MENU_URL,
         )
+        alerted = True
 
     # Silence is not success: if the item vanishes from the page entirely for
     # long enough, the page changed and this monitor is watching nothing.
@@ -687,6 +706,18 @@ def main():
                 f"{state.get('snippet', '')[:500]}",
             )
             state["stuck_reported"] = True
+
+    if REPORT_EVERY_RUN and not alerted:
+        headline, detail = {
+            "SOLD_OUT": ("🚫 Still sold out",
+                         "Brownie Choc-A-Lot is still greyed out at Natick."),
+            "AVAILABLE": ("✅ Still available",
+                          "Brownie Choc-A-Lot is orderable at Natick right now."),
+            "NOT_FOUND": ("❓ Not on the menu",
+                          "The item did not appear on the Natick menu this run."),
+        }.get(current, (f"Brownie check: {current}", "Status as reported above."))
+        push_alert(f"{headline} — {datetime.now(timezone.utc).strftime('%-I:%M %p UTC')}",
+                   detail, MENU_URL)
 
     save_state(state)
     report_change(signature(state) != baseline)
