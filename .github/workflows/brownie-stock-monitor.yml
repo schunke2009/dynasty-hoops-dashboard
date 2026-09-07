@@ -19,6 +19,18 @@ on:
     # :00 and :30, where every other cron job on the platform piles up.
     - cron: '17 15-23,0-3 * * *'
     - cron: '47 15-23,0-3 * * *'
+
+  # GitHub's cron is unreliable enough that it cannot be the only trigger:
+  # it delivered 11 runs one day and 0 by mid-afternoon the next. Any external
+  # scheduler can POST here to run the check on time, every time:
+  #
+  #   curl -X POST https://api.github.com/repos/OWNER/REPO/dispatches \
+  #     -H "Authorization: Bearer <token with Actions: write>" \
+  #     -H "Accept: application/vnd.github+json" \
+  #     -d '{"event_type":"check-stock"}'
+  repository_dispatch:
+    types: [check-stock]
+
   workflow_dispatch:
     inputs:
       url:
