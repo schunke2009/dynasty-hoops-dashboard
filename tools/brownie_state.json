@@ -1,13 +1,13 @@
 {
-  "changed_at": "2026-09-05T23:19:29+00:00",
+  "changed_at": "2026-09-12T21:00:42+00:00",
   "consecutive_fetch_failures": 0,
   "consecutive_not_found": 0,
   "consecutive_wrong_location": 0,
-  "last_checked": "2026-09-05T23:19:29+00:00",
+  "last_checked": "2026-09-12T21:00:42+00:00",
   "location_reported": false,
-  "snippet": "[markup marker: disabled\"] menu__cards--product\"><app-custom-default-product-card _ngcontent-ng-c2949125351=\"\" _nghost-ng-c3899202425=\"\"><div _ngcontent-ng-c3899202425=\"\" class=\"c-product-card menu product112094280 disabled\"><div _ngcontent-ng-c3899202425=\"\" class=\"c-product-card__info__container\"><div _ngcontent-ng-c3899202425=\"\" class=\"c-product-card__info\"><span _ngcontent-ng-c3899202425=\"\" class=\"c-product-card__name\"> Brownie Crunch Choc-a-Lot Cheesecake (Temporarily Unavailable)<!----><!--",
+  "snippet": "lackened Pacific Swordfish, Cheese, Coleslaw and Tartar Sauce on a Toasted Sesame Seed Bun Modern Cheesesteak $26.95 With Melted Cheese and Grilled Onion on a Toasted Sesame Roll Shakshuka Omelette $18.95 Roasted Peppers and Onion, Spinach, Feta Cheese and Spicy Tomato Sauce. Served with Pita Bread Brownie Crunch Choc-a-Lot Cheesecake $13.50 Milk and White Chocolate Marbled Cheesecake on a Crunchy Toffee Brownie Pineapple Coconut Dream $6.50 Our \u201cDirty Soda\u201d with Pineapple, Coconut and Sweet Cre",
   "staleness_reported": false,
-  "state": "SOLD_OUT",
+  "state": "AVAILABLE",
   "stuck_reported": false,
   "url": "https://www.thecheesecakefactory.com/locations/natick-ma/menu"
 }
