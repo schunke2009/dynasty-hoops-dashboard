@@ -1,13 +1,13 @@
 {
-  "changed_at": "2026-10-05T07:43:44+00:00",
+  "changed_at": "2026-10-06T09:27:37+00:00",
   "consecutive_fetch_failures": 0,
   "consecutive_not_found": 0,
-  "consecutive_wrong_location": 2,
-  "last_checked": "2026-10-06T02:32:30+00:00",
+  "consecutive_wrong_location": 0,
+  "last_checked": "2026-10-06T09:27:37+00:00",
   "location_reported": false,
   "snippet": "lackened Pacific Swordfish, Cheese, Coleslaw and Tartar Sauce on a Toasted Sesame Seed Bun Modern Cheesesteak $26.95 With Melted Cheese and Grilled Onion on a Toasted Sesame Roll Shakshuka Omelette $18.95 Roasted Peppers and Onion, Spinach, Feta Cheese and Spicy Tomato Sauce. Served with Pita Bread Brownie Crunch Choc-a-Lot Cheesecake $13.50 Milk and White Chocolate Marbled Cheesecake on a Crunchy Toffee Brownie Pineapple Coconut Dream $6.50 Our \u201cDirty Soda\u201d with Pineapple, Coconut and Sweet Cre",
   "staleness_reported": false,
-  "state": "LOCATION_UNCONFIRMED",
+  "state": "AVAILABLE",
   "stuck_reported": false,
   "url": "https://www.thecheesecakefactory.com/locations/natick-ma/menu"
 }
